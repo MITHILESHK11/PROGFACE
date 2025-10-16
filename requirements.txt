@@ -1,5 +1,5 @@
 streamlit
-opencv-python
-numpy
 streamlit-webrtc
-pydrive2
+opencv-python-headless
+numpy
+pymongo[srv]
