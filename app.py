@@ -39,4 +39,14 @@ class FaceDetectionTransformer(VideoTransformerBase):
                 filename = f"{SAVE_DIR}/face_{timestamp}.jpg"
                 cv2.imwrite(filename, face_only)
         else:
-            cv2.putText(img, "❌ No Person Detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,
+            cv2.putText(img, "❌ No Person Detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+        return img
+
+# ---------------------------
+# Start webcam streaming
+# ---------------------------
+webrtc_streamer(
+    key="face-detection",
+    video_transformer_factory=FaceDetectionTransformer,
+    media_stream_constraints={"video": True, "audio": False},
+)
