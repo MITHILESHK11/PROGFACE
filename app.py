@@ -2,63 +2,41 @@ import streamlit as st
 import cv2
 import numpy as np
 import os
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 from datetime import datetime
 
-# -------------------------------
-# CONFIG
-# -------------------------------
-st.set_page_config(page_title="Face Detection App", layout="centered")
+st.set_page_config(page_title="Face Detection Cloud Webcam", layout="centered")
 st.title("🧠 Real-Time Face Detection (Cloud Compatible)")
 
 # Directory to save detected faces
 SAVE_DIR = "huggingface_faces"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# Haar cascade from same directory
+# Load Haar cascade from same directory
 haar_file = "haarcascade_frontalface_default.xml"
 if not os.path.exists(haar_file):
     st.error("Haar cascade XML file not found in the same directory as app.py")
     st.stop()
 face_cascade = cv2.CascadeClassifier(haar_file)
 
-# -------------------------------
-# CAMERA INPUT
-# -------------------------------
-st.write("📸 Take a photo using your browser camera")
-camera_input = st.camera_input("Camera input")
+# ---------------------------
+# Video transformer
+# ---------------------------
+class FaceDetectionTransformer(VideoTransformerBase):
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.3, 4)
 
-# Optional fallback upload
-st.write("Or upload a photo if camera doesn't work")
-uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
+        if len(faces) > 0:
+            cv2.putText(img, "✅ Person Detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+            for (x, y, w, h) in faces:
+                cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                face_only = gray[y:y+h, x:x+w]
 
-# Choose the image to process
-image_file = camera_input if camera_input else uploaded_file
-
-if image_file is not None:
-    # Convert to OpenCV image
-    file_bytes = np.asarray(bytearray(image_file.getvalue()), dtype=np.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # Detect faces
-    faces = face_cascade.detectMultiScale(gray, 1.3, 4)
-
-    if len(faces) > 0:
-        st.success("✅ Person Detected")
-        for (x, y, w, h) in faces:
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            face_only = gray[y:y + h, x:x + w]
-
-            # Save detected face
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{SAVE_DIR}/face_{timestamp}.jpg"
-            cv2.imwrite(filename, face_only)
-            st.write(f"💾 Saved: {filename}")
-    else:
-        st.error("❌ No Person Detected")
-
-    # Convert BGR to RGB for Streamlit display
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    st.image(img_rgb, caption="Processed Image", use_column_width=True)
-else:
-    st.info("Please take a photo using the camera above or upload an image.")
+                # Save each face detected
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S%f")
+                filename = f"{SAVE_DIR}/face_{timestamp}.jpg"
+                cv2.imwrite(filename, face_only)
+        else:
+            cv2.putText(img, "❌ No Person Detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,
