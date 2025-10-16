@@ -1,103 +1,83 @@
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import cv2
 import numpy as np
-import os
-from datetime import datetime
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
-from pydrive2.auth import GoogleAuth
-from pydrive2.drive import GoogleDrive
+from pymongo import MongoClient
+import datetime
 
-# -----------------------
-# Streamlit page config
-# -----------------------
-st.set_page_config(page_title="Webcam Face Capture to Google Drive", layout="centered")
-st.title("🧠 Face Capture & Save to Google Drive")
+# ----------------------------
+# MongoDB Atlas Setup
+# ----------------------------
+MONGO_URI = st.secrets["MONGO_URI"]  # We'll store MongoDB URI in Streamlit Secrets
+client = MongoClient(MONGO_URI)
+db = client["face_dataset"]
+collection = db["faces"]
 
-# -----------------------
-# Google Drive setup
-# -----------------------
-st.write("⚠️ Make sure you have your credentials.json for Google Drive API in the repo or upload it.")
-gauth = GoogleAuth()
-gauth.LocalWebserverAuth()  # Opens auth flow in browser
-drive = GoogleDrive(gauth)
-
-# -----------------------
-# User input
-# -----------------------
+# ----------------------------
+# App UI
+# ----------------------------
+st.title("📸 Real-Time Face Capture")
 name = st.text_input("Enter your name:")
+
 if not name:
-    st.warning("Please enter a name to start capturing.")
+    st.warning("Please enter your name to start capturing faces.")
     st.stop()
 
-# Create folder in Google Drive
-folders = drive.ListFile({'q': "title='FaceDataset' and mimeType='application/vnd.google-apps.folder' and trashed=false"}).GetList()
-if folders:
-    folder_id = folders[0]['id']
-else:
-    folder_metadata = {'title': 'FaceDataset', 'mimeType': 'application/vnd.google-apps.folder'}
-    folder = drive.CreateFile(folder_metadata)
-    folder.Upload()
-    folder_id = folder['id']
+st.write(f"Hello, **{name}**! Position your face in front of the webcam.")
 
-# Create subfolder for the user
-user_folder_metadata = {'title': name, 'parents':[{'id': folder_id}], 'mimeType':'application/vnd.google-apps.folder'}
-user_folder = drive.CreateFile(user_folder_metadata)
-user_folder.Upload()
-user_folder_id = user_folder['id']
+# ----------------------------
+# Haar Cascade
+# ----------------------------
+haar_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+WIDTH, HEIGHT = 130, 100
+MAX_IMAGES = 10  # Max images per session
 
-st.success(f"Folder for {name} created in Google Drive.")
-
-# -----------------------
-# Face detection setup
-# -----------------------
-haar_file = "haarcascade_frontalface_default.xml"
-if not os.path.exists(haar_file):
-    st.error("Haar cascade XML file not found in the repo.")
-    st.stop()
-face_cascade = cv2.CascadeClassifier(haar_file)
-
-width, height = 130, 100
-
-# -----------------------
-# Video transformer
-# -----------------------
-class FaceCaptureTransformer(VideoTransformerBase):
+# ----------------------------
+# Webcam Streamer
+# ----------------------------
+class FaceCapture(VideoTransformerBase):
     def __init__(self):
-        self.count = 1
+        self.count = 0
 
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, 1.3, 4)
+        faces = haar_cascade.detectMultiScale(gray, 1.3, 4)
 
         if len(faces) > 0:
-            cv2.putText(img, "✅ Person Detected", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-            for (x, y, w, h) in faces:
-                cv2.rectangle(img, (x,y),(x+w,y+h),(0,255,0),2)
-                face_only = gray[y:y+h, x:x+w]
-                face_resized = cv2.resize(face_only, (width, height))
-
-                # Save to temporary file
-                temp_filename = f"face_{self.count}.jpg"
-                cv2.imwrite(temp_filename, face_resized)
-
-                # Upload to Google Drive
-                gfile = drive.CreateFile({'title': f"{self.count}.jpg", 'parents':[{'id': user_folder_id}]})
-                gfile.SetContentFile(temp_filename)
-                gfile.Upload()
-                os.remove(temp_filename)
-
-                self.count += 1
+            st.session_state["message"] = "✅ Person Detected"
         else:
-            cv2.putText(img, "❌ No Person Detected", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+            st.session_state["message"] = "❌ No Person Detected"
+
+        for (x, y, w, h) in faces:
+            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            # Save only a limited number of images per session
+            if self.count < MAX_IMAGES:
+                face_only = gray[y:y + h, x:x + w]
+                resized = cv2.resize(face_only, (WIDTH, HEIGHT))
+                # Convert to bytes
+                _, img_encoded = cv2.imencode(".jpg", resized)
+                img_bytes = img_encoded.tobytes()
+                # Insert into MongoDB
+                collection.insert_one({
+                    "name": name,
+                    "image_number": self.count + 1,
+                    "image_data": img_bytes,
+                    "timestamp": datetime.datetime.utcnow()
+                })
+                self.count += 1
 
         return img
 
-# -----------------------
-# Start webcam stream
-# -----------------------
-webrtc_streamer(
+if "message" not in st.session_state:
+    st.session_state["message"] = ""
+
+webrtc_ctx = webrtc_streamer(
     key="face-capture",
-    video_transformer_factory=FaceCaptureTransformer,
+    video_transformer_factory=FaceCapture,
     media_stream_constraints={"video": True, "audio": False},
+    async_transform=True
 )
+
+st.info(st.session_state["message"])
