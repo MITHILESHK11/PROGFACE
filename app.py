@@ -4,12 +4,11 @@ import numpy as np
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 from pymongo import MongoClient
 import datetime
-import io
 
 # -----------------------
-# MongoDB setup
+# MongoDB setup (direct)
 # -----------------------
-MONGO_URI = st.secrets["MONGO"]["MONGO_URI"]  # or os.environ["MONGO_URI"] if using GitHub Actions
+MONGO_URI = "mongodb+srv://User:abc12345678@facedataset.hlmdvpa.mongodb.net/?retryWrites=true&w=majority&appName=FACEDATASET"
 client = MongoClient(MONGO_URI)
 db = client["face_dataset"]
 collection = db["faces"]
