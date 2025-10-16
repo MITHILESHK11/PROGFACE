@@ -108,6 +108,6 @@ if show_images:
         for i, img_doc in enumerate(saved_images):
             img_array = np.frombuffer(img_doc["image_data"], dtype=np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_GRAYSCALE)
-            cols[i % 5].image(img, use_column_width=True, caption=f"{img_doc['image_number']}")
+            cols[i % 5].image(img, use_container_width=True, caption=f"{img_doc['image_number']}")
     else:
         st.write("No images saved yet for this user.")
